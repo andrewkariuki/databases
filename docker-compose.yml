@@ -1,0 +1,95 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16.1-alpine
+    container_name: postgres
+    ports:
+      - 5432:5432
+    networks:
+      - traefik
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB?Value not set}
+      - POSTGRES_USER=${POSTGRES_USER?Value not set}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD?Value not set}
+      - POSTGRES_HOST_AUTH_METHOD=${POSTGRES_HOST_AUTH_METHOD?Value not set}
+    env_file:
+      - .env
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "pg_isready", "-d", "$POSTGRES_DB", "-U", "$POSTGRES_USER"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  pgadmin:
+    image: dpage/pgadmin4:8.2
+    container_name: pgadmin
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./data/pgadmin:/var/lib/pgadmin
+    environment:
+      - SCRIPT_NAME=${SCRIPT_NAME?Value not set}
+      - PGADMIN_DEFAULT_EMAIL=${PGADMIN_DEFAULT_EMAIL?Value not set}
+      - PGADMIN_DEFAULT_PASSWORD=${PGADMIN_DEFAULT_PASSWORD?Value not set}
+    restart: unless-stopped
+    networks:
+      - traefik
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=traefik
+      - traefik.http.routers.pgadmin-router.entrypoints=websecure
+      - traefik.http.routers.pgadmin-router.rule=(Host(`pgadmin.kariuki.local`) && PathPrefix(`/_admin/pgadmin`))
+      - traefik.http.routers.pgadmin-router.tls=true
+      - traefik.http.routers.pgadmin-router.service=pgadmin-databases
+
+  mariadb:
+    image: mariadb:11.2.2
+    container_name: mariadb
+    ports:
+      - 3306:3306
+    networks:
+      - traefik
+    volumes:
+      - ./data/mariadb:/var/lib/mysql
+    environment:
+      - MYSQL_USER=${MYSQL_USER?Value not set}
+      - MYSQL_DATABASE=${MYSQL_DATABASE?Value not set}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD?Value not set}
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD?Value not set}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      start_period: 1m
+      start_interval: 10s
+      interval: 1m
+      timeout: 5s
+      retries: 3
+
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin:5.2.1
+    container_name: phpmyadmin
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    environment:
+      - PMA_HOST=${PMA_HOST?Value not set}
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD?Value not set}
+    restart: unless-stopped
+    networks:
+      - traefik
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=traefik
+      - traefik.http.routers.phpmyadmin-router.entrypoints=websecure
+      - traefik.http.routers.phpmyadmin-router.rule=Host(`phpmyadmin.kariuki.local`)
+      - traefik.http.routers.phpmyadmin-router.tls=true
+      - traefik.http.routers.phpmyadmin-router.service=phpmyadmin-databases
+
+networks:
+  traefik:
+    external: true
